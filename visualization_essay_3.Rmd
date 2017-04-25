@@ -162,5 +162,5 @@ wright_topics3 %>%
   coord_flip()
 ```
 
-This second topic model (above) indicates the existence of multiple distinct discourses surrounding Native Americans. As indicated by topics 4, 17, 26, and 35 the word “indian” appears in numerous and different topics. While by no means conclusive, this essay demonstrates that topic modeling is a useful way to conduct research on the Wright American Fiction collection. Enlarging the study to include the entire corpus may reveal more nuances within the topic models and help identify multiple different discourses surrounding Native Americans. 
+The second model (above) has several topics (4, 17, 26, and 35) that include the word “indian.” This suggests the existence of multiple distinct discourses surrounding Native Americans in 19th century fiction. Enlarging the study to include the entire corpus may reveal more nuances within the topic models and help identify the different discourses surrounding Native Americans. While by no means conclusive, this essay demonstrates that topic modeling is a useful way to conduct research on the Wright American Fiction collection. 
 
