@@ -1,0 +1,309 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(stringr)
+library(tokenizers)
+library(tidytext)
+library(topicmodels)
+library(dplyr)
+library(ggplot2)
+```
+```{r}
+stopwords_jockers <- read_file("jockers_stop_words.txt")
+stopwords_jockers <- data_frame(stopwords = str_split(stopwords_jockers, ", ")[[1]])
+colnames(stopwords_jockers)[1] <- "word"
+
+```
+
+```{r}
+read_corpus <- function(dir) {
+  files <- list.files(path = dir, full.names = TRUE)
+  doc_ids <- tools::file_path_sans_ext(basename(files))
+  docs <- purrr::map_chr(files, readr::read_file)
+  tibble::data_frame(doc_id = doc_ids,
+                     filename = basename(files),
+                     text = docs)
+}
+
+my_corpus <- read_corpus("~/Josh Lenovo/Clio III/visualization3/visualization3/Wright_texts/wright_text")
+
+#saveRDS(my_corpus, "wright_corpus.rds")
+#my_corpus <-readRDS("wright_corpus.rds")
+
+
+sample_corpus <- my_corpus[200:300,]
+```
+
+```{r}
+sample_corpus <- sample_corpus %>% 
+  mutate(words = count_words(text)) 
+
+
+ggplot(sample_corpus, aes(x = words)) + geom_histogram(binwidth = 100) +
+  labs(title = "Lengths of Fiction Texts")
+
+```
+
+```{r}
+read_doc <- function(id) {
+  out <- sample_corpus %>% 
+    filter(filename == id)
+  cat(out[["text"]])
+}
+```
+
+```{r}
+wright_tokenized_sample <- sample_corpus %>% 
+  select(filename, text) %>% 
+  unnest_tokens(word, text, token = "words")
+```
+
+```{r}
+word_counts <- wright_tokenized_sample %>% 
+  count(word, sort = TRUE)
+```
+
+```{r}
+# Words to drop by frequency
+words_to_drop <- word_counts %>% 
+  filter(n <= 2 | n >= 10000)
+
+nrow(words_to_drop) / nrow(word_counts)
+
+# Drop words by frequency and also stopwords
+wright_tokenized_sample<- wright_tokenized_sample%>% 
+  anti_join(words_to_drop, by = "word") %>% 
+  anti_join(stop_words, by = "word")
+```
+
+```{r}
+plot_words <- function(tidy_df, n = 10) {
+  require(ggplot2)
+  require(dplyr)
+  tidy_df %>%
+    count(word, sort = TRUE) %>%
+    top_n(n = n, n) %>% 
+    mutate(word = reorder(word, n)) %>%
+    ggplot(aes(word, n)) +
+    geom_col() +
+    xlab(NULL) +
+    coord_flip()
+}
+plot_words(wright_tokenized_sample, n = 60)
+```
+
+
+```{r}
+# Get word counts by document
+wright_counts <- wright_tokenized_sample %>% 
+  count(filename, word) %>% 
+  group_by(filename) %>% 
+  mutate(total_words = n()) %>% 
+  ungroup()
+
+wright_tfidf <- wright_counts %>% 
+  bind_tf_idf(word, filename, n)
+```
+
+```{r}
+wright_tfidf %>% 
+  arrange(desc(tf_idf)) %>% 
+  mutate(word = factor(word, levels = rev(unique(word)))) %>%
+  top_n(20) %>% 
+  ggplot(aes(word, tf_idf, fill = filename)) +
+  geom_col() +
+  labs(x = NULL, y = "tf-idf") +
+  coord_flip()
+```
+
+```{r}
+wright_tfidf %>% 
+  arrange(filename, desc(tf_idf)) %>% 
+  group_by(filename) %>% 
+  top_n(10, tf_idf) %>% 
+  summarize(keywords = str_c(word, collapse = ", ")) 
+```
+```{r}
+wright_tfidf %>% 
+  filter(word %in% c("indian", "savage")) %>% 
+  arrange(desc(tf_idf)) %>%
+  top_n(10)
+```
+
+```{r}
+## Topic models
+set.seed(3452)
+#We have to cast our data frame to a sparse matrix.
+
+wright_dtm <- wright_counts %>% 
+  filter(filename %in% sample_corpus$filename) %>% 
+  cast_dtm(filename, word, n)
+
+wright_dtm
+
+wright_dtm[1:6, 1:6] %>% as.matrix()
+```
+
+```{r}
+wright_lda <- LDA(wright_dtm, k = 20, control = list(seed = 6432))
+
+saveRDS(wright_lda, "wright_sample_lda.rds")
+#wright_lda <- readRDS("wright_sample_lda")
+
+if (!file.exists("wpa_lda.rds")) {
+  system.time({wright_lda <- LDA(wright_dtm, k = 50, control = list(seed = 6432))})
+  saveRDS(wright_lda, "wright_lda.rds")
+} else {
+  wright_lda <- readRDS("wright_lda.rds")
+}
+```
+
+```{r}
+wright_topics <- tidy(wright_lda, matrix = "beta")
+wright_topics_display <- wright_topics %>% 
+  mutate(beta = round(beta, 4)) %>% 
+  group_by(topic) %>% 
+  top_n(15, beta) %>% 
+  arrange(topic, desc(beta)) 
+
+
+wright_topics_display %>% 
+  group_by(topic) %>% 
+  summarize(words = str_c(term, collapse = ", "))
+
+wright_topics %>%
+  group_by(topic) %>%
+  top_n(15, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta) %>% 
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+```
+
+We can also get the association between documents and topics.
+
+```{r}
+wright_docs <- tidy(wright_lda, matrix = "gamma")
+
+wright_docs %>% 
+  mutate(gamma = round(gamma, 2)) %>% 
+  group_by(topic) %>% 
+  filter(gamma > 0.2) %>% 
+  top_n(10, gamma) %>% 
+  arrange(topic, desc(gamma))
+```
+
+## Topic Model filter 2000
+
+```{r}
+words_to_drop2 <- word_counts %>% 
+  filter(n <= 4 | n >= 2000)
+
+wright_tokenized_sample2<- wright_tokenized_sample%>% 
+  anti_join(words_to_drop2, by = "word") %>% 
+  anti_join(stop_words, by = "word")  %>%
+  anti_join(stopwords_jockers, by = "word")
+
+wright_counts2 <- wright_tokenized_sample2 %>% 
+  count(filename, word) %>% 
+  group_by(filename) %>% 
+  mutate(total_words = n()) %>% 
+  ungroup()
+
+wright_tfidf2 <- wright_counts2 %>% 
+  bind_tf_idf(word, filename, n)
+```
+
+```{r}
+wright_tfidf2 %>% 
+  arrange(desc(tf_idf)) %>% 
+  mutate(word = factor(word, levels = rev(unique(word)))) %>%
+  top_n(20) %>% 
+  ggplot(aes(word, tf_idf, fill = filename)) +
+  geom_col() +
+  labs(x = NULL, y = "tf-idf") +
+  coord_flip()
+
+wright_tfidf2 %>% 
+  arrange(filename, desc(tf_idf)) %>% 
+  group_by(filename) %>% 
+  top_n(10, tf_idf) %>% 
+  summarize(keywords = str_c(word, collapse = ", ")) 
+
+wright_dtm2 <- wright_counts2 %>% 
+  filter(filename %in% sample_corpus$filename) %>% 
+  cast_dtm(filename, word, n)
+
+wright_lda2 <- LDA(wright_dtm2, k = 20, control = list(seed = 6432))
+
+#saveRDS(wright_lda2, "wright_lda2.rds")
+
+wright_lda3 <- LDA(wright_dtm2, k = 50, control = list(seed = 6432))
+
+saveRDS(wright_lda3, "wright_lda3.rds")
+
+```
+
+```{r}
+wright_topics2 <- tidy(wright_lda2, matrix = "beta")
+wright_topics_display2 <- wright_topics2 %>% 
+  mutate(beta = round(beta, 4)) %>% 
+  group_by(topic) %>% 
+  top_n(15, beta) %>% 
+  arrange(topic, desc(beta)) 
+
+wright_topics_display2 %>% 
+  filter(topic == "17") 
+
+wright_topics_display2
+
+wright_topics_display2 %>% 
+  group_by(topic) %>% 
+  summarize(words = str_c(term, collapse = ", "))
+
+wright_topics2 %>%
+  group_by(topic) %>%
+  top_n(20, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta) %>% 
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, nrow = 3, scales = "free") +
+  coord_flip()
+```
+
+```{r}
+wright_docs2 <- tidy(wright_lda2, matrix = "gamma")
+
+wright_docs2 %>% 
+  mutate(gamma = round(gamma, 2)) %>% 
+  group_by(topic) %>% 
+  filter(gamma > 0.2) %>% 
+  top_n(10, gamma) %>% 
+  arrange(topic, desc(gamma))
+```
+```{r}
+wright_topics3 <- tidy(wright_lda3, matrix = "beta")
+
+wright_topics3 %>%
+  group_by(topic) %>%
+  top_n(15, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta) %>% 
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, nrow = 4, scales = "free") +
+  coord_flip()
+```
+
+
+VAC5769.txt, VAC5800.txt, VAC5806.txt, VAC5719.txt, VAC5742.txt

@@ -1,0 +1,166 @@
+---
+title: "Exploring the Wright American Fiction Corpus"
+output:
+  html_document: default
+  html_notebook: default
+author: "Joshua Catalano"
+---
+
+
+```{r libraries, include=FALSE, message=FALSE}
+library(tidyverse)
+library(stringr)
+library(tokenizers)
+library(tidytext)
+library(topicmodels)
+library(dplyr)
+library(ggplot2)
+```
+```{r stopwords, echo=FALSE, message=FALSE, warning = FALSE}
+stopwords_jockers <- read_file("jockers_stop_words.txt")
+stopwords_jockers <- data_frame(stopwords = str_split(stopwords_jockers, ", ")[[1]])
+colnames(stopwords_jockers)[1] <- "word"
+
+```
+```{r corpus_prep, echo=FALSE, message=FALSE, warning = FALSE}
+
+my_corpus <-readRDS("wright_corpus.rds")
+
+sample_corpus <- my_corpus[200:300,]
+
+sample_corpus <- sample_corpus %>% 
+  mutate(words = count_words(text)) 
+
+wright_tokenized_sample <- sample_corpus %>% 
+  select(filename, text) %>% 
+  unnest_tokens(word, text, token = "words")
+
+word_counts <- wright_tokenized_sample %>% 
+  count(word, sort = TRUE)
+
+words_to_drop <- word_counts %>% 
+  filter(n <= 2 | n >= 10000)
+
+wright_tokenized_sample<- wright_tokenized_sample%>% 
+  anti_join(words_to_drop, by = "word") %>% 
+  anti_join(stop_words, by = "word")
+
+wright_counts <- wright_tokenized_sample %>% 
+  count(filename, word) %>% 
+  group_by(filename) %>% 
+  mutate(total_words = n()) %>% 
+  ungroup()
+
+wright_tfidf <- wright_counts %>% 
+  bind_tf_idf(word, filename, n)
+
+set.seed(3452)
+
+wright_dtm <- wright_counts %>% 
+  filter(filename %in% sample_corpus$filename) %>% 
+  cast_dtm(filename, word, n)
+
+#wright_lda <- LDA(wright_dtm, k = 20, control = list(seed = 6432))
+
+#saveRDS(wright_lda, "wright_sample_lda.rds")
+
+wright_lda <- readRDS("wright_sample_lda")
+
+words_to_drop2 <- word_counts %>% 
+  filter(n <= 4 | n >= 2000)
+
+wright_tokenized_sample2<- wright_tokenized_sample%>% 
+  anti_join(words_to_drop2, by = "word") %>% 
+  anti_join(stop_words, by = "word")  %>%
+  anti_join(stopwords_jockers, by = "word")
+
+wright_counts2 <- wright_tokenized_sample2 %>% 
+  count(filename, word) %>% 
+  group_by(filename) %>% 
+  mutate(total_words = n()) %>% 
+  ungroup()
+
+wright_tfidf2 <- wright_counts2 %>% 
+  bind_tf_idf(word, filename, n)
+
+wright_dtm2 <- wright_counts2 %>% 
+  filter(filename %in% sample_corpus$filename) %>% 
+  cast_dtm(filename, word, n)
+
+#wright_lda2 <- LDA(wright_dtm2, k = 20, control = list(seed = 6432))
+
+#saveRDS(wright_lda2, "wright_lda2.rds")
+
+wright_lda2 <- readRDS("wright_lda2.rds")
+
+#wright_lda3 <- LDA(wright_dtm2, k = 50, control = list(seed = 6432))
+
+#saveRDS(wright_lda3, "wright_lda3.rds")
+
+wright_lda3 <- readRDS("wright_lda3.rds")
+``` 
+
+The [Wright American Fiction collection](http://webapp1.dlib.indiana.edu/TEIgeneral/welcome.do?brand=wright) consists of nearly 3,000 works of 19th century American fiction. The collection is based on a bibliography created by Lyle H. Wright covering the period of 1851-1875. This essay explores a small subset (101 texts) of the total corpus using topic modeling. It argues that this approach is a viable and productive way to conduct research on the corpus.  Because this essay is a partially a proof of concept, several brief examples will be provided to highlight potential avenues of research.
+
+In order to get a sense of what themes and content these 19th century authors wrote about, I topic modeled a subset of 101 texts using LDA (Latent Dirichlet Allocation). The first attempt revealed that the topics created by the model were badly skewed due to the presence of proper names. After filtering out a list of common 19th century proper names created by [Matthew Jockers](http://www.matthewjockers.net/macroanalysisbook/expanded-stopwords-list/), the model was retrained on 20 topics. The results of this second model (shown below) contain several unidentifiable categories, but topics 1, 3, 8, 9, 13, 14, 15, 16, 17, 18 had identifiable themes that I labeled nautical, law, business, slavery, religion, gardening, music/slave dialect, frontier, and military strategy respectively. 
+
+```{r topics1, echo=FALSE, warning = FALSE, fig.align= "center", fig.height= 8.0, fig.width= 10}
+
+wright_topics2 <- tidy(wright_lda2, matrix = "beta")
+
+wright_topics2 %>%
+  group_by(topic) %>%
+  top_n(20, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta) %>% 
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, nrow = 3, scales = "free") +
+  coord_flip()
+```
+
+Being interested in Native American history, I focused on topic 17 (frontier) that is clearly about the American frontier and interactions with Native Americans. 
+
+```{r topic_17, echo=FALSE, warning = FALSE}
+
+wright_topics_display2 <- wright_topics2 %>% 
+  mutate(beta = round(beta, 4)) %>% 
+  group_by(topic) %>% 
+  top_n(15, beta) %>% 
+  arrange(topic, desc(beta)) 
+
+wright_topics_display2 %>% 
+  filter(topic == "17") 
+```
+
+Filtering the documents that are significantly comprised of that topic revealed several texts written by Emerson Bennett including *The Phantom of the Forest*, *The Bride of the Wilderness*, *Wild scenes on the frontiers, or, Heroes of the West*, *The Pioneer's Daughter and The Unknown Countess*, and *The Border Rover*. I had not come across Bennett’s work before so in this particular case, the topic model has identified an author which requires further study. In addition to Bennett, the model also identified several texts whose titles may not have piqued my interest had I merely perused a bibliographic list of the works. These texts included John Ballou’s *The Lady of the West, or, The Gold Seekers* and D.W. Belisle’s *The American Family Robinson, or, The Adventures of a Family Lost in the Great Desert of the West*.  
+
+In addition to identifying relevant texts using the topics, computing and weighting the term frequencies (tf-idf) also yielded interesting results by highlighting texts that frequently employed the terms “indian” and “savage.”
+
+```{r tfidf, echo=FALSE, warning = FALSE}
+wright_tfidf %>% 
+  filter(word %in% c("indian", "savage")) %>% 
+  arrange(desc(tf_idf)) %>%
+  top_n(10)
+```
+
+Exploring the topic breakdown of these texts reveal that they were comprised of other categories that were distinct from the frontier. Given the significant degree to which these texts contained the word “indian” I was surprised that they were only marginally comprised of topic 17. I suspected that there might be other discourses concerning Native Americans that were not necessarily texts about the frontier. In an attempt to capture this nuance, I retrained another model with 50 topics. 
+
+```{r topics2, echo=FALSE, warning = FALSE, fig.align= "center", fig.height=14, fig.width = 10}
+wright_topics3 <- tidy(wright_lda3, matrix = "beta")
+
+wright_topics3 %>%
+  group_by(topic) %>%
+  top_n(15, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta) %>% 
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, nrow = 6, scales = "free") +
+  coord_flip()
+```
+
+This second topic model (above) indicates the existence of multiple distinct discourses surrounding Native Americans. As indicated by topics 4, 17, 26, and 35 the word “indian” appears in numerous and different topics. While by no means conclusive, this essay demonstrates that topic modeling is a useful way to conduct research on the Wright American Fiction collection. Enlarging the study to include the entire corpus may reveal more nuances within the topic models and help identify multiple different discourses surrounding Native Americans. 
+
