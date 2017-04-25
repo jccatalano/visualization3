@@ -145,7 +145,7 @@ wright_tfidf %>%
   top_n(10)
 ```
 
-Exploring the topic breakdown of these texts reveal that they were comprised of other categories that were distinct from the frontier. Given the significant degree to which these texts contained the word “indian” I was surprised that they were only marginally comprised of topic 17. I suspected that there might be other discourses concerning Native Americans that were not necessarily texts about the frontier. In an attempt to capture this nuance, I retrained another model with 50 topics. 
+Exploring the topic breakdown of these texts revealed that they were comprised of other categories that were distinct from the frontier. Given the significant degree to which these texts contained the word “indian” I was surprised that they were only marginally comprised of topic 17. I suspected that there might be other discourses concerning Native Americans that were not necessarily texts about the frontier. In an attempt to capture this nuance, I retrained another model with 50 topics. 
 
 ```{r topics2, echo=FALSE, warning = FALSE, fig.align= "center", fig.height=14, fig.width = 10}
 wright_topics3 <- tidy(wright_lda3, matrix = "beta")
