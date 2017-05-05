@@ -1,11 +1,14 @@
 ---
-title: "Exploring the Wright American Fiction Corpus"
+title: 
 output:
   html_document: default
   html_notebook: default
-author: "Joshua Catalano"
----
 
+---
+<center>
+<h1> Exploring the Wright American Fiction Corpus </h1>
+<h3> Joshua Catalano </h3>
+</center>
 
 ```{r libraries, include=FALSE, message=FALSE}
 library(tidyverse)
